@@ -1,0 +1,58 @@
+# blinker==1.9.0
+# click==8.3.1
+# colorama==0.4.6
+# Flask==3.1.2
+# itsdangerous==2.2.0
+# Jinja2==3.1.6
+# MarkupSafe==3.0.3
+# Werkzeug==3.1.3
+# fastapi==0.109.0
+# uvicorn[standard]==0.27.0
+# pydantic>=2.7,<3.0
+# pydantic-settings==2.1.0
+# motor==3.3.2
+# pymongo==4.6.1
+# python-multipart==0.0.6
+# email-validator==2.1.0
+# python-jose[cryptography]==3.3.0
+# passlib[bcrypt]==1.7.4
+# python-dateutil==2.8.2
+# brotli==1.1.0
+# aioredis==2.0.1
+# redis==5.0.1
+# babel==2.14.0
+
+# # Documentation
+# swagger-ui-bundle==0.0.9
+
+# # Testing
+# pytest==7.4.4
+# pytest-asyncio==0.23.3
+# httpx==0.26.0
+
+# # Development
+# black==24.1.1
+# flake8==7.0.0
+# mypy==1.8.0
+fastapi==0.121.3
+uvicorn[standard]==0.27.0
+pydantic>=2.7,<3.0
+pydantic-settings==2.12.0
+motor==3.3.2
+pymongo>=4.14,<5
+python-multipart==0.0.6
+email-validator==2.1.0
+python-dateutil==2.8.2
+brotli==1.1.0
+redis==5.0.1
+babel==2.14.0
+
+# Tests
+pytest==7.4.4
+pytest-asyncio==0.23.3
+httpx==0.26.0
+
+# Development
+black==24.1.1
+flake8==7.0.0
+pymongo>=4.14,<5
