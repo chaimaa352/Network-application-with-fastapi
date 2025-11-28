@@ -16,6 +16,7 @@ from app.middleware.cache import CacheControlMiddleware
 from app.utils.errors import APIError
 from app.utils.i18n import setup_i18n
 
+
 # Lifecycle management
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
     await close_mongo_connection()
     print(" Application shutdown complete!")
 
+
 # Create FastAPI app with versioning (Technique 1: URL Path)
 app = FastAPI(
     title="Social Network API",
@@ -38,21 +40,17 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
-    openapi_url="/api/v1/openapi.json"
+    openapi_url="/api/v1/openapi.json",
 )
 
 # CORS Configuration (Requirement h)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:8080",
-        "https://yourdomain.com"
-    ],
+    allow_origins=["http://localhost:3000", "http://localhost:8080", "https://yourdomain.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Total-Count", "X-Page", "X-Limit"]
+    expose_headers=["X-Total-Count", "X-Page", "X-Limit"],
 )
 
 # Compression Middleware (Requirement j)
@@ -61,6 +59,7 @@ app.add_middleware(BrotliMiddleware, minimum_size=1000)
 
 # Cache Control Middleware (Requirement i)
 app.add_middleware(CacheControlMiddleware)
+
 
 # Custom middleware for versioning (Technique 2: Custom Header)
 @app.middleware("http")
@@ -71,6 +70,7 @@ async def version_middleware(request: Request, call_next):
     response.headers["X-API-Version"] = api_version
     return response
 
+
 # Performance monitoring middleware
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -80,15 +80,9 @@ async def add_process_time_header(request: Request, call_next):
     response.headers["X-Process-Time"] = str(process_time)
     return response
 
+
 # Helper function to create standardized error responses
-def create_error_response(
-    code: str,
-    message: str,
-    status_code: int,
-    path: str,
-    method: str,
-    details: any = None
-):
+def create_error_response(code: str, message: str, status_code: int, path: str, method: str, details: any = None):
     """Create standardized error response"""
     return {
         "error": {
@@ -98,11 +92,13 @@ def create_error_response(
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "path": path,
             "method": method,
-            "details": details
+            "details": details,
         }
     }
 
+
 # Exception Handlers (Requirement d)
+
 
 # 1. Handler pour les erreurs API personnalisées (PARAMS_NOT_VALID, RESOURCE_NOT_FOUND, etc.)
 @app.exception_handler(APIError)
@@ -116,9 +112,10 @@ async def api_error_handler(request: Request, exc: APIError):
             status_code=exc.status_code,
             path=str(request.url.path),
             method=request.method,
-            details=exc.details
-        )
+            details=exc.details,
+        ),
     )
+
 
 # 2. Handler pour les erreurs de validation Pydantic (BODY_NOT_VALID)
 @app.exception_handler(RequestValidationError)
@@ -129,14 +126,9 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
         # Extraire le nom du champ (sans "body")
         field_parts = [str(loc) for loc in error["loc"] if loc != "body"]
         field = ".".join(field_parts) if field_parts else "body"
-        
-        errors.append({
-            "field": field,
-            "value": error.get("input"),
-            "issue": error["msg"],
-            "type": error["type"]
-        })
-    
+
+        errors.append({"field": field, "value": error.get("input"), "issue": error["msg"], "type": error["type"]})
+
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
         content=create_error_response(
@@ -145,9 +137,10 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
             status_code=400,
             path=str(request.url.path),
             method=request.method,
-            details=errors
-        )
+            details=errors,
+        ),
     )
+
 
 # 3. Handler pour les erreurs HTTP (notamment 404 PATH_NOT_FOUND)
 @app.exception_handler(StarletteHTTPException)
@@ -172,12 +165,12 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
                         "GET /api/v1/posts",
                         "GET /api/v1/posts/{id}",
                         "GET /api/v1/comments",
-                        "GET /api/v1/tags"
+                        "GET /api/v1/tags",
                     ]
-                }
-            )
+                },
+            ),
         )
-    
+
     # Pour les autres erreurs HTTP
     return JSONResponse(
         status_code=exc.status_code,
@@ -187,19 +180,20 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             status_code=exc.status_code,
             path=str(request.url.path),
             method=request.method,
-            details=None
-        )
+            details=None,
+        ),
     )
+
 
 # 4. Handler pour les erreurs serveur non gérées (SERVER_ERROR)
 @app.exception_handler(Exception)
 async def server_error_handler(request: Request, exc: Exception):
     """Handle unexpected server errors"""
     error_id = str(uuid.uuid4())
-    
+
     # Log l'erreur (en production, utilisez un vrai logger)
     print(f"[ERROR {error_id}] {type(exc).__name__}: {str(exc)}")
-    
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=create_error_response(
@@ -208,18 +202,17 @@ async def server_error_handler(request: Request, exc: Exception):
             status_code=500,
             path=str(request.url.path),
             method=request.method,
-            details={
-                "errorId": error_id,
-                "message": "Please try again later or contact support if the issue persists"
-            }
-        )
+            details={"errorId": error_id, "message": "Please try again later or contact support if the issue persists"},
+        ),
     )
+
 
 # Include routers with versioning
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(posts.router, prefix="/api/v1/posts", tags=["Posts"])
 app.include_router(comments.router, prefix="/api/v1/comments", tags=["Comments"])
 app.include_router(tags.router, prefix="/api/v1/tags", tags=["Tags"])
+
 
 # Root endpoint with HATEOAS
 @app.get("/api/v1", tags=["Root"])
@@ -234,15 +227,18 @@ async def root():
             "posts": {"href": "/api/v1/posts"},
             "comments": {"href": "/api/v1/comments"},
             "tags": {"href": "/api/v1/tags"},
-            "docs": {"href": "/api/v1/docs"}
-        }
+            "docs": {"href": "/api/v1/docs"},
+        },
     }
+
 
 # Health check endpoint
 @app.get("/health", tags=["Health"])
 async def health_check():
     return {"status": "healthy", "timestamp": time.time()}
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)

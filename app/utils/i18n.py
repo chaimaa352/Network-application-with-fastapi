@@ -30,43 +30,33 @@ TRANSLATIONS = {
         "not_found": "Ressource non trouvée",
         "invalid_params": "Paramètres invalides",
         "invalid_body": "Corps de requête invalide",
-    }
+    },
 }
+
 
 class I18n:
     def __init__(self):
-        self.locales = {
-            "en": Locale("en", "US"),
-            "fr": Locale("fr", "FR")
-        }
-    
+        self.locales = {"en": Locale("en", "US"), "fr": Locale("fr", "FR")}
+
     def format_date(self, date: datetime, language: str = "en") -> str:
         """Format date according to language with MM (01, 02, etc.)"""
         if not date:
             return ""
-        
+
         lang = language.lower()[:2]
         if lang not in self.locales:
             lang = "en"
-        
+
         locale = self.locales[lang]
-        
+
         # Format avec MM (mois en nombres 01-12)
         if lang == "fr":
             # Format français : 15/01/2025 à 14:30
-            return format_datetime(
-                date, 
-                format="dd/MM/yyyy 'à' HH:mm",
-                locale=locale
-            )
+            return format_datetime(date, format="dd/MM/yyyy 'à' HH:mm", locale=locale)
         else:
             # Format anglais : 01/15/2025 at 2:30 PM
-            return format_datetime(
-                date, 
-                format="MM/dd/yyyy 'at' h:mm a",
-                locale=locale
-            )
-    
+            return format_datetime(date, format="MM/dd/yyyy 'at' h:mm a", locale=locale)
+
     def get_translation(self, key: str, language: str = "en") -> str:
         """Get translation for a key"""
         lang = language.lower()[:2]
@@ -74,7 +64,9 @@ class I18n:
             lang = "en"
         return TRANSLATIONS[lang].get(key, key)
 
+
 _i18n = None
+
 
 def setup_i18n():
     """Initialize i18n"""
@@ -82,15 +74,18 @@ def setup_i18n():
     _i18n = I18n()
     print(" i18n initialized")
 
+
 def get_i18n() -> I18n:
     """Get i18n instance"""
     if _i18n is None:
         setup_i18n()
     return _i18n
 
+
 def translate(key: str, language: str = "en") -> str:
     """Translate a key to the specified language"""
     return get_i18n().get_translation(key, language)
+
 
 def format_date(date: Optional[datetime], language: str = "en") -> str:
     """Format a date according to the specified language"""

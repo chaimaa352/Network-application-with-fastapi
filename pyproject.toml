@@ -1,0 +1,6 @@
+[tool.bandit]
+exclude_dirs = ["/venv", "/.venv"]
+skips = ["B101"]
+
+[tool.black]
+line-length = 120

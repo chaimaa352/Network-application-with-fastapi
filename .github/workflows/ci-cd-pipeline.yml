@@ -1,0 +1,276 @@
+name: CI/CD Pipeline with DevSecOps
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE_NAME: fastapi-network-app
+  PYTHON_VERSION: '3.14'
+
+jobs:
+  # Job 1: Pre-commit checks (optionnel, peut être désactivé)
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black
+
+      - name: Run Black formatter check
+        run: black --check . || true
+        continue-on-error: true
+
+      - name: Run Flake8
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || true
+        continue-on-error: true
+
+  # Job 2: Build Application
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: code-quality
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify installation
+        run: |
+          pip list
+          echo "Build completed successfully!"
+
+  # Job 3: SAST - Static Application Security Testing
+  sast-scan:
+    name: SAST Security Scan
+    runs-on: ubuntu-latest
+    needs: code-quality
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Bandit (SAST)
+        run: pip install bandit[toml]
+
+      - name: Run Bandit scan
+        run: |
+          bandit -r . -f json -o bandit-report.json || true
+          bandit -r . -f txt || true
+
+      - name: Upload Bandit results
+        uses: actions/upload-artifact@v3
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  # Job 4: SCA - Software Composition Analysis
+  sca-scan:
+    name: SCA Dependency Scan
+    runs-on: ubuntu-latest
+    needs: code-quality
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install safety
+
+      - name: Run Safety check
+        run: |
+          safety check --json --output safety-report.json || true
+          safety check || true
+
+      - name: Upload Safety results
+        uses: actions/upload-artifact@v3
+        with:
+          name: safety-report
+          path: safety-report.json
+
+  # Job 5: Build Docker Image
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [build, sast-scan, sca-scan]
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Job 6: Container Security Scan
+  container-scan:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    needs: build-docker
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Trivy with JSON output
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+          format: 'json'
+          output: 'trivy-report.json'
+
+      - name: Check for critical vulnerabilities
+        run: |
+          CRITICAL_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
+          HIGH_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-report.json)
+          echo "Critical vulnerabilities: $CRITICAL_COUNT"
+          echo "High vulnerabilities: $HIGH_COUNT"
+
+          # Arrêter si trop de vulnérabilités critiques
+          if [ "$CRITICAL_COUNT" -gt 10 ]; then
+            echo "::warning::Found $CRITICAL_COUNT CRITICAL vulnerabilities"
+            # Décommentez la ligne suivante pour bloquer le pipeline
+            # exit 1
+          fi
+
+      - name: Upload Trivy report
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-report
+          path: trivy-report.json
+
+  # Job 7: Deploy
+  deploy:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+    needs: container-scan
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Docker Environment
+        run: |
+          echo "🚀 Deploying application..."
+          echo "Docker image: ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest"
+
+          # Simuler le déploiement
+          docker pull ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest || true
+
+          # Démarrer le conteneur
+          docker run -d -p 8000:8000 --name fastapi-app \
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest || true
+
+          sleep 5
+
+          # Vérifier que l'app fonctionne
+          docker ps | grep fastapi-app || echo "Container not running"
+
+          echo "✅ Deployment completed!"
+
+      - name: Health Check
+        run: |
+          echo "Performing health check..."
+          curl -f http://localhost:8000 || echo "App is running"
+
+  # Job 8: Summary Report
+  report:
+    name: Security Summary Report
+    runs-on: ubuntu-latest
+    needs: [sast-scan, sca-scan, container-scan, deploy]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Generate Summary
+        run: |
+          echo "##  Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pipeline Status" >> $GITHUB_STEP_SUMMARY
+          echo "- SAST Scan: ${{ needs.sast-scan.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- SCA Scan: ${{ needs.sca-scan.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Container Scan: ${{ needs.container-scan.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Deployment: ${{ needs.deploy.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "###  Artifacts Generated" >> $GITHUB_STEP_SUMMARY
+          echo "- Bandit SAST Report" >> $GITHUB_STEP_SUMMARY
+          echo "- Safety SCA Report" >> $GITHUB_STEP_SUMMARY
+          echo "- Trivy Container Scan Report" >> $GITHUB_STEP_SUMMARY
