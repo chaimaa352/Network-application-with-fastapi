@@ -1,22 +1,28 @@
+# FastAPI Core
 fastapi==0.104.1
-uvicorn==0.24.0
+uvicorn[standard]==0.24.0
 pydantic==2.5.0
-pytest==7.4.3
+pydantic-settings==2.1.0
+
+# HTTP & API
+httpx==0.25.2
 requests==2.31.0
-
-# MongoDB
-pymongo==4.5.0
-motor==3.3.2
-
-# Validation email
-email-validator==2.1.0
-
-# Internationalisation (i18n)
-babel==2.14.0
-
-# Autres dépendances courantes
 python-multipart==0.0.6
-python-jose==3.3.0
-passlib==1.7.4
-bcrypt==4.0.1
+
+# Database (si vous utilisez une DB)
+# sqlalchemy==2.0.23
+# psycopg2-binary==2.9.9  # PostgreSQL
+# pymongo==4.6.0  # MongoDB
+
+# Validation & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
 python-dotenv==1.0.0
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-asyncio==0.21.1
+
+# Autres dépendances de votre projet
+# Ajoutez ici toutes les autres librairies que vous utilisez
