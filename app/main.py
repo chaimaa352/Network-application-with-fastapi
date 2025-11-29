@@ -9,8 +9,9 @@ app = FastAPI(
     description="REST API with CI/CD Pipeline and DevSecOps",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
+
 
 # Models (si vous en avez besoin)
 class Item(BaseModel):
@@ -18,14 +19,17 @@ class Item(BaseModel):
     name: str
     description: Optional[str] = None
 
+
 class User(BaseModel):
     id: Optional[int] = None
     username: str
     email: str
 
+
 # Base de données fictive (remplacez par votre vraie DB)
 items_db = []
 users_db = []
+
 
 # ✅ DÉFINIR LES ROUTES APRÈS
 @app.get("/")
@@ -38,9 +42,10 @@ async def root():
             "docs": "/docs",
             "health": "/health",
             "items": "/items",
-            "users": "/users"
-        }
+            "users": "/users",
+        },
     }
+
 
 @app.get("/health")
 async def health_check():
@@ -48,14 +53,16 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "Network Application API",
-        "version": "1.0.0"
+        "version": "1.0.0",
     }
+
 
 # Routes pour Items
 @app.get("/items", response_model=List[Item])
 async def get_items():
     """Récupérer tous les items"""
     return items_db
+
 
 @app.get("/items/{item_id}", response_model=Item)
 async def get_item(item_id: int):
@@ -65,12 +72,14 @@ async def get_item(item_id: int):
             return item
     raise HTTPException(status_code=404, detail="Item not found")
 
+
 @app.post("/items", response_model=Item)
 async def create_item(item: Item):
     """Créer un nouvel item"""
     item.id = len(items_db) + 1
     items_db.append(item.dict())
     return item
+
 
 @app.put("/items/{item_id}", response_model=Item)
 async def update_item(item_id: int, item: Item):
@@ -82,6 +91,7 @@ async def update_item(item_id: int, item: Item):
             return item
     raise HTTPException(status_code=404, detail="Item not found")
 
+
 @app.delete("/items/{item_id}")
 async def delete_item(item_id: int):
     """Supprimer un item"""
@@ -91,11 +101,13 @@ async def delete_item(item_id: int):
             return {"message": "Item deleted successfully"}
     raise HTTPException(status_code=404, detail="Item not found")
 
+
 # Routes pour Users
 @app.get("/users", response_model=List[User])
 async def get_users():
     """Récupérer tous les utilisateurs"""
     return users_db
+
 
 @app.post("/users", response_model=User)
 async def create_user(user: User):
@@ -103,6 +115,7 @@ async def create_user(user: User):
     user.id = len(users_db) + 1
     users_db.append(user.dict())
     return user
+
 
 # Lancer l'application en local (pour développement)
 if __name__ == "__main__":
