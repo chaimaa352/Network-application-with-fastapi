@@ -1,4 +1,4 @@
-name: CI/CD Pipeline for FastAPI
+name: CI/CD Pipeline
 
 on:
   push:
@@ -7,34 +7,54 @@ on:
     branches: [ main, master ]
 
 env:
-  IMAGE_NAME: network-fastapi-app
-  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  DOCKER_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/fastapi-network-app
+  DOCKER_IMAGE_TAG: ${{ github.sha }}
 
 jobs:
+  # ===========================
+  # JOB 1: BUILD & TEST
+  # ===========================
   build:
-    name: Build Application
+    name: Build and Test
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Set up Python 3.9
+    
+    - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'
-
+        python-version: '3.11'
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-
-    - name: Validate application
+        pip install pytest pytest-cov
+    
+    - name: Run tests
       run: |
-        echo "✅ Dependencies installed successfully"
-        echo "🔍 Checking application structure..."
-        ls -la
+        pytest --cov=. --cov-report=xml --cov-report=html
+      continue-on-error: true
+    
+    - name: Lint code
+      run: |
+        pip install flake8
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      continue-on-error: true
 
+  # ===========================
+  # JOB 2: DOCKER BUILD & PUSH
+  # ===========================
   package:
     name: Package Docker Image
     runs-on: ubuntu-latest
@@ -43,35 +63,78 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
+    
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-
-    - name: Log in to Docker Hub
-      if: success()
+    
+    - name: Login to Docker Hub
       uses: docker/login-action@v3
       with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.DOCKER_IMAGE_NAME }}
+        tags: |
+          type=sha,prefix={{branch}}-
+          type=ref,event=branch
+          type=semver,pattern={{version}}
+          latest
+    
     - name: Build and push Docker image
-      if: success()
       uses: docker/build-push-action@v5
       with:
         context: .
         push: true
-        tags: ${{ secrets.DOCKER_USERNAME }}/network-fastapi-app:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        tags: |
+          ${{ env.DOCKER_IMAGE_NAME }}:latest
+          ${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+        cache-from: type=registry,ref=${{ env.DOCKER_IMAGE_NAME }}:buildcache
+        cache-to: type=registry,ref=${{ env.DOCKER_IMAGE_NAME }}:buildcache,mode=max
+    
+    - name: Image digest
+      run: echo "Image pushed with digest ${{ steps.docker_build.outputs.digest }}"
 
+  # ===========================
+  # JOB 3: DEPLOY
+  # ===========================
   deploy:
-    name: Deploy to Docker Environment
+    name: Deploy Application
     runs-on: ubuntu-latest
     needs: package
     
     steps:
-    - name: Deploy application
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Deploy to Docker (Local/Test Environment)
       run: |
-        echo "🚀 Application would be deployed here"
-        echo "Image: ${{ secrets.DOCKER_USERNAME }}/network-fastapi-app:latest"
-        echo "✅ Deployment stage reached successfully"
+        echo "Pulling latest image..."
+        docker pull ${{ env.DOCKER_IMAGE_NAME }}:latest
+        
+        echo "Stopping existing container..."
+        docker stop fastapi-app || true
+        docker rm fastapi-app || true
+        
+        echo "Starting new container..."
+        docker run -d \
+          --name fastapi-app \
+          -p 8000:8000 \
+          --restart unless-stopped \
+          ${{ env.DOCKER_IMAGE_NAME }}:latest
+        
+        echo "Deployment completed successfully!"
+    
+    - name: Health check
+      run: |
+        echo "Waiting for application to start..."
+        sleep 10
+        
+        echo "Performing health check..."
+        curl -f http://localhost:8000/docs || exit 1
+        
+        echo "Application is healthy!"
+        
