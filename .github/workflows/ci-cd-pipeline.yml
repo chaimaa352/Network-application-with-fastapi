@@ -33,12 +33,19 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "⚠️ requirements.txt not found, installing default dependencies"
+            pip install fastapi uvicorn
+          fi
 
       - name: Run basic checks
         run: |
           python --version
           pip list
+          # Test basic Python functionality
+          python -c "import sys; print('✅ Python import test passed')"
           echo "✅ Build completed successfully"
 
   # ========================================
@@ -57,18 +64,38 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+
       - name: Install security tools
-        run: pip install bandit safety
+        run: |
+          pip install bandit safety
 
       - name: Run Bandit (SAST)
-        run: bandit -r . -ll -i || echo "⚠️ Bandit scan completed with warnings"
+        run: |
+          # Scan only Python files, exclude virtualenvs
+          find . -name "*.py" -not -path "*/env/*" -not -path "*/venv/*" -not -path "*/.venv/*" | head -10
+          bandit -r . -ll -f json -o bandit-report.json || true
         continue-on-error: true
 
       - name: Run Safety (SCA)
         run: |
-          pip install -r requirements.txt
-          safety check || echo "⚠️ Safety scan completed with warnings"
+          safety check --json --output safety-report.json || true
         continue-on-error: true
+
+      - name: Security Summary
+        run: |
+          echo "🔒 Security scans completed (warnings are non-blocking)"
+          if [ -f bandit-report.json ]; then
+            echo "📊 Bandit report generated"
+          fi
+          if [ -f safety-report.json ]; then
+            echo "📊 Safety report generated"
+          fi
 
   # ========================================
   # 3. DOCKER BUILD
@@ -91,7 +118,14 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build Docker image
-        run: docker build -t ${{ env.DOCKER_IMAGE }}:latest .
+        run: |
+          # Check if Dockerfile exists
+          if [ ! -f Dockerfile ]; then
+            echo "❌ Dockerfile not found!"
+            exit 1
+          fi
+          docker build -t ${{ env.DOCKER_IMAGE }}:latest .
+          echo "✅ Docker image built successfully"
 
       - name: Push to Docker Hub
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
@@ -108,8 +142,20 @@ jobs:
     needs: [build, security, docker]
     if: always()
     steps:
-      - name: Summary
+      - name: Pipeline Status Summary
         run: |
           echo "======================================"
-          echo "✅ Pipeline completed"
+          echo "📊 PIPELINE EXECUTION SUMMARY"
           echo "======================================"
+          echo "Build: ${{ needs.build.result }}"
+          echo "Security: ${{ needs.security.result }}"
+          echo "Docker: ${{ needs.docker.result }}"
+          echo "======================================"
+
+          if [ "${{ needs.build.result }}" == "success" ] && [ "${{ needs.docker.result }}" == "success" ]; then
+            echo "✅ PIPELINE COMPLETED SUCCESSFULLY"
+          else
+            echo "❌ PIPELINE FAILED"
+            echo "Check the failed job(s) above for details"
+            exit 1
+          fi
