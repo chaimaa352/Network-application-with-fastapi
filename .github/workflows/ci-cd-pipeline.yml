@@ -77,11 +77,16 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     
+    - name: Convert repository name to lowercase
+      id: lowercase
+      run: |
+        echo "image_name=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+    
     - name: Extract metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        images: ${{ env.REGISTRY }}/${{ steps.lowercase.outputs.image_name }}
         tags: |
           type=ref,event=branch
           type=ref,event=pr
@@ -97,13 +102,13 @@ jobs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-        cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+        cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase.outputs.image_name }}:buildcache
+        cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ steps.lowercase.outputs.image_name }}:buildcache,mode=max
     
     - name: Image summary
       run: |
         echo "✅ Image successfully built and pushed!"
-        echo "📦 Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+        echo "📦 Image: ${{ env.REGISTRY }}/${{ steps.lowercase.outputs.image_name }}"
         echo "🏷️  Tags: ${{ steps.meta.outputs.tags }}"
 
   # ===========================
@@ -127,11 +132,16 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     
+    - name: Convert repository name to lowercase
+      id: lowercase
+      run: |
+        echo "image_name=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+    
     - name: Deploy to Docker Environment
       run: |
         echo "🚀 Starting deployment..."
         
-        IMAGE_URL="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+        IMAGE_URL="${{ env.REGISTRY }}/${{ steps.lowercase.outputs.image_name }}:latest"
         echo "📦 Pulling image: $IMAGE_URL"
         docker pull $IMAGE_URL
         
@@ -182,7 +192,7 @@ jobs:
         echo "================================================"
         echo "🎉 Deployment Summary"
         echo "================================================"
-        echo "📦 Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+        echo "📦 Image: ${{ env.REGISTRY }}/${{ steps.lowercase.outputs.image_name }}:latest"
         echo "🌐 Application URL: http://localhost:8000"
         echo "📚 API Documentation: http://localhost:8000/docs"
         echo "================================================"
