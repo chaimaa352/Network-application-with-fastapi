@@ -1,7 +1,8 @@
 from typing import List, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 # ✅ CRÉER L'APPLICATION EN PREMIER
@@ -12,6 +13,63 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+
+# ✅ MIDDLEWARE DE SÉCURITÉ POUR CORRIGER LES ALERTES DAST
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+
+    # 🔒 En-têtes de sécurité pour corriger les warnings DAST
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+    # ✅ Correction pour Sec-Fetch-Dest Header [90005]
+    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+
+    # ✅ Protection contre Spectre [90004]
+    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+
+    return response
+
+
+# ✅ ROUTE POUR ROBOTS.TXT (corrige le 404)
+@app.get("/robots.txt")
+async def robots_txt():
+    """Fichier robots.txt pour les crawlers"""
+    content = """User-agent: *
+Allow: /
+Disallow: /admin/
+
+Sitemap: http://localhost:8000/sitemap.xml"""
+    return Response(content=content, media_type="text/plain")
+
+
+# ✅ ROUTE POUR SITEMAP.XML (corrige le 404)
+@app.get("/sitemap.xml")
+async def sitemap_xml():
+    """Sitemap XML pour les moteurs de recherche"""
+    content = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>http://localhost:8000/</loc>
+        <priority>1.0</priority>
+    </url>
+    <url>
+        <loc>http://localhost:8000/docs</loc>
+        <priority>0.8</priority>
+    </url>
+    <url>
+        <loc>http://localhost:8000/health</loc>
+        <priority>0.5</priority>
+    </url>
+</urlset>"""
+    return Response(content=content, media_type="application/xml")
 
 
 # Models (si vous en avez besoin)
@@ -120,5 +178,4 @@ async def create_user(user: User):
 
 # Lancer l'application en local (pour développement)
 if __name__ == "__main__":
-    # uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
