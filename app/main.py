@@ -32,9 +32,6 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
     response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
 
-    # ✅ Protection contre Spectre [90004]
-    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
-
     return response
 
 
@@ -72,7 +69,7 @@ async def sitemap_xml():
     return Response(content=content, media_type="application/xml")
 
 
-# Models (si vous en avez besoin)
+# Models
 class Item(BaseModel):
     id: Optional[int] = None
     name: str
@@ -85,7 +82,7 @@ class User(BaseModel):
     email: str
 
 
-# Base de données fictive (remplacez par votre vraie DB)
+# Base de données fictive
 items_db = []
 users_db = []
 
@@ -176,6 +173,6 @@ async def create_user(user: User):
     return user
 
 
-# Lancer l'application en local (pour développement)
+# Lancer l'application en local
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
