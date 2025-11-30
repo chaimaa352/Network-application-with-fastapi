@@ -2,18 +2,11 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Header, Path, Query, Request
 
+from app.schemas.common import DeleteResponse, SortOrder
+from app.schemas.post import PostCreate, PostUpdate
 from app.services.post_service import PostService
 from app.utils.errors import ResourceNotFoundError
 from app.utils.i18n import format_date
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from typing import List, Optional
-
-# Ajoutez ces imports selon ce qui existe dans votre projet
-from app.schemas.common import PaginatedResponse, SortOrder, DeleteResponse
-from app.schemas.post import Post, PostCreate, PostUpdate, PostFull, PostPreview
-from app.services.post_service import PostService
-from app.utils.errors import ErrorResponse
-# ... autres imports existants
 
 router = APIRouter()
 post_service = PostService()

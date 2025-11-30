@@ -2,19 +2,13 @@ from typing import Literal, Optional
 
 from bson import ObjectId
 from bson.errors import InvalidId
+from fastapi import APIRouter, Header, Query, Request
 
 from app.schemas.common import DeleteResponse, PaginatedResponse, SortOrder
+from app.schemas.user import UserCreate, UserPreview, UserUpdate
 from app.services.user_service import UserService
 from app.utils.errors import ParamsNotValidError, ResourceNotFoundError
 from app.utils.i18n import format_date
-from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, status
-from typing import List, Optional
-
-# Ajoutez ces imports selon ce qui existe dans votre projet
-from app.schemas.user import User, UserCreate, UserUpdate, UserPreview, UserFull
-from app.services.user_service import UserService
-from app.utils.errors import ErrorResponse
-# ... autres imports existants
 
 router = APIRouter()
 user_service = UserService()
