@@ -1,10 +1,12 @@
 """
 Script to initialize the database with sample data
 """
+
 import asyncio
-from motor.motor_asyncio import AsyncIOMotorClient
-from datetime import datetime, timedelta
 import random
+from datetime import datetime, timedelta
+
+from motor.motor_asyncio import AsyncIOMotorClient
 
 # Sample data
 SAMPLE_USERS = [
@@ -155,9 +157,7 @@ async def init_database():
     print(" Creating users...")
     user_ids = []
     for user_data in SAMPLE_USERS:
-        user_data["registerDate"] = datetime.utcnow() - timedelta(
-            days=random.randint(30, 365)
-        )
+        user_data["registerDate"] = datetime.utcnow() - timedelta(days=random.randint(30, 365))
         result = await db.users.insert_one(user_data)
         user_ids.append(str(result.inserted_id))
         print(f"   ✓ Created user: {user_data['firstName']} {user_data['lastName']}")
@@ -174,8 +174,7 @@ async def init_database():
                 "tags": post_template["tags"],
                 "owner": user_ids[random.randint(0, len(user_ids) - 1)],
                 "link": f"https://example.com/article/{i}{j}",
-                "publishDate": datetime.utcnow()
-                - timedelta(days=random.randint(1, 30)),
+                "publishDate": datetime.utcnow() - timedelta(days=random.randint(1, 30)),
             }
             result = await db.posts.insert_one(post_data)
             post_ids.append(str(result.inserted_id))
@@ -206,9 +205,7 @@ async def init_database():
     print(f" Users: {len(user_ids)}")
     print(f" Posts: {len(post_ids)}")
     print(f" Comments: {comment_count}")
-    print(
-        f"  Tags: {len(set([tag for post in SAMPLE_POSTS_TEMPLATES for tag in post['tags']]))}"
-    )
+    print(f"  Tags: {len(set([tag for post in SAMPLE_POSTS_TEMPLATES for tag in post['tags']]))}")
     print("\n You can now access the API at http://localhost:8000/api/v1")
     print(" Documentation: http://localhost:8000/api/v1/docs")
 

@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Query, Path, Request, Header
-from typing import Optional, Literal
-from app.schemas.post import PostCreate, PostUpdate, PostFull, PostPreview
-from app.schemas.common import PaginatedResponse, DeleteResponse, SortOrder
+from typing import Literal, Optional
+
+from fastapi import APIRouter, Header, Path, Query, Request
+
 from app.services.post_service import PostService
 from app.utils.errors import ResourceNotFoundError
 from app.utils.i18n import format_date
@@ -28,23 +28,15 @@ def add_pagination_links(
     query_string = f"&{query_params}" if query_params else ""
 
     links = {
-        "self": {
-            "href": f"{base_url}{endpoint}?page={page}&limit={limit}{query_string}"
-        },
+        "self": {"href": f"{base_url}{endpoint}?page={page}&limit={limit}{query_string}"},
         "first": {"href": f"{base_url}{endpoint}?page=1&limit={limit}{query_string}"},
-        "last": {
-            "href": f"{base_url}{endpoint}?page={total_pages}&limit={limit}{query_string}"
-        },
+        "last": {"href": f"{base_url}{endpoint}?page={total_pages}&limit={limit}{query_string}"},
     }
 
     if page > 1:
-        links["prev"] = {
-            "href": f"{base_url}{endpoint}?page={page-1}&limit={limit}{query_string}"
-        }
+        links["prev"] = {"href": f"{base_url}{endpoint}?page={page-1}&limit={limit}{query_string}"}
     if page < total_pages:
-        links["next"] = {
-            "href": f"{base_url}{endpoint}?page={page+1}&limit={limit}{query_string}"
-        }
+        links["next"] = {"href": f"{base_url}{endpoint}?page={page+1}&limit={limit}{query_string}"}
 
     return links
 
@@ -64,9 +56,7 @@ async def get_posts(
     if search:
         filters["text"] = {"$regex": search, "$options": "i"}
 
-    posts, total = await post_service.get_posts(
-        page, limit, sort_by, sort_order.value, filters
-    )
+    posts, total = await post_service.get_posts(page, limit, sort_by, sort_order.value, filters)
 
     # Extraire la langue
     lang = accept_language.split(",")[0].strip()[:2]
@@ -122,9 +112,7 @@ async def get_posts_by_user(
 ):
     """Get posts by user with formatted dates"""
     filters = {"owner": user_id}
-    posts, total = await post_service.get_posts(
-        page, limit, sort_by, sort_order.value, filters
-    )
+    posts, total = await post_service.get_posts(page, limit, sort_by, sort_order.value, filters)
 
     # Extraire la langue
     lang = accept_language.split(",")[0].strip()[:2]
@@ -171,9 +159,7 @@ async def get_posts_by_tag(
 ):
     """Get posts by tag with formatted dates"""
     filters = {"tags": tag}
-    posts, total = await post_service.get_posts(
-        page, limit, sort_by, sort_order.value, filters
-    )
+    posts, total = await post_service.get_posts(page, limit, sort_by, sort_order.value, filters)
 
     # Extraire la langue
     lang = accept_language.split(",")[0].strip()[:2]

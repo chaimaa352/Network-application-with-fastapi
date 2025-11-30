@@ -1,4 +1,5 @@
 import asyncio
+
 from motor.motor_asyncio import AsyncIOMotorClient
 
 
@@ -25,13 +26,11 @@ async def test_connection():
 
         # Accéder à la base social_network
         db = client["social_network"]
-        print(f"✅ Base de données 'social_network' accessible")
+        print("✅ Base de données 'social_network' accessible")
 
         # Insérer un document de test
         test_collection = db["test_connection"]
-        result = await test_collection.insert_one(
-            {"message": "Test OK", "status": "success"}
-        )
+        result = await test_collection.insert_one({"message": "Test OK", "status": "success"})
         print(f"✅ Document inséré avec ID: {result.inserted_id}")
 
         # Lire le document

@@ -1,8 +1,10 @@
-from typing import List, Tuple, Optional
 from datetime import datetime
+from typing import List, Optional, Tuple
+
 from bson import ObjectId
+
 from app.database import get_database
-from app.schemas.post import PostCreate, PostUpdate, PostFull, PostPreview
+from app.schemas.post import PostCreate, PostFull, PostPreview, PostUpdate
 from app.services.user_service import UserService
 from app.utils.errors import BodyNotValidError, ResourceNotFoundError
 
@@ -74,9 +76,7 @@ class PostService:
         sort_direction = -1 if sort_order == "desc" else 1
         skip = (page - 1) * limit
 
-        cursor = (
-            collection.find(query).sort(sort_by, sort_direction).skip(skip).limit(limit)
-        )
+        cursor = collection.find(query).sort(sort_by, sort_direction).skip(skip).limit(limit)
 
         posts = []
         async for post_dict in cursor:
@@ -125,9 +125,7 @@ class PostService:
 
         return await self._post_dict_to_full(created_post)
 
-    async def update_post(
-        self, post_id: str, post_data: PostUpdate
-    ) -> Optional[PostFull]:
+    async def update_post(self, post_id: str, post_data: PostUpdate) -> Optional[PostFull]:
         """Update post (owner cannot be updated)"""
         if not ObjectId.is_valid(post_id):
             return None

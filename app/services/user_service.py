@@ -1,8 +1,10 @@
-from typing import List, Tuple, Optional
 from datetime import datetime
+from typing import List, Optional, Tuple
+
 from bson import ObjectId
+
 from app.database import get_database
-from app.schemas.user import UserCreate, UserUpdate, UserFull, UserPreview
+from app.schemas.user import UserCreate, UserFull, UserPreview, UserUpdate
 from app.utils.errors import BodyNotValidError
 
 
@@ -58,9 +60,7 @@ class UserService:
 
         # Get users with pagination
         skip = (page - 1) * limit
-        cursor = (
-            collection.find(query).sort(sort_by, sort_direction).skip(skip).limit(limit)
-        )
+        cursor = collection.find(query).sort(sort_by, sort_direction).skip(skip).limit(limit)
 
         users = []
         async for user_dict in cursor:
@@ -120,9 +120,7 @@ class UserService:
 
         return self._user_dict_to_full(created_user)
 
-    async def update_user(
-        self, user_id: str, user_data: UserUpdate
-    ) -> Optional[UserFull]:
+    async def update_user(self, user_id: str, user_data: UserUpdate) -> Optional[UserFull]:
         """Update user (email cannot be updated)"""
         if not ObjectId.is_valid(user_id):
             return None

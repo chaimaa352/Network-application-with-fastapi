@@ -1,13 +1,10 @@
-from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 
 class APIError(Exception):
     """Base API Error class"""
 
-    def __init__(
-        self, code: str, message: str, status_code: int, details: Optional[Any] = None
-    ):
+    def __init__(self, code: str, message: str, status_code: int, details: Optional[Any] = None):
         self.code = code
         self.message = message
         self.status_code = status_code
@@ -73,15 +70,9 @@ class PathNotFoundError(APIError):
 
 
 class ServerError(APIError):
-    def __init__(
-        self, message: str = "An internal server error occurred", error_id: str = None
-    ):
-        details = {
-            "message": "Please try again later or contact support if the issue persists"
-        }
+    def __init__(self, message: str = "An internal server error occurred", error_id: str = None):
+        details = {"message": "Please try again later or contact support if the issue persists"}
         if error_id:
             details["errorId"] = error_id
 
-        super().__init__(
-            code="SERVER_ERROR", message=message, status_code=500, details=details
-        )
+        super().__init__(code="SERVER_ERROR", message=message, status_code=500, details=details)

@@ -1,11 +1,11 @@
-from typing import Optional, Literal
+from typing import Literal, Optional
+
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, Header, Path, Query, Request
-from app.schemas.user import UserCreate, UserUpdate, UserFull, UserPreview
-from app.schemas.common import PaginatedResponse, DeleteResponse, SortOrder
+
+from app.schemas.common import DeleteResponse, PaginatedResponse, SortOrder
 from app.services.user_service import UserService
-from app.utils.errors import ResourceNotFoundError, ParamsNotValidError
+from app.utils.errors import ParamsNotValidError, ResourceNotFoundError
 from app.utils.i18n import format_date
 
 router = APIRouter()
@@ -50,23 +50,15 @@ def add_pagination_links(
     query_string = f"&{query_params}" if query_params else ""
 
     links = {
-        "self": {
-            "href": f"{base_url}{endpoint}?page={page}&limit={limit}{query_string}"
-        },
+        "self": {"href": f"{base_url}{endpoint}?page={page}&limit={limit}{query_string}"},
         "first": {"href": f"{base_url}{endpoint}?page=1&limit={limit}{query_string}"},
-        "last": {
-            "href": f"{base_url}{endpoint}?page={total_pages}&limit={limit}{query_string}"
-        },
+        "last": {"href": f"{base_url}{endpoint}?page={total_pages}&limit={limit}{query_string}"},
     }
 
     if page > 1:
-        links["prev"] = {
-            "href": f"{base_url}{endpoint}?page={page-1}&limit={limit}{query_string}"
-        }
+        links["prev"] = {"href": f"{base_url}{endpoint}?page={page-1}&limit={limit}{query_string}"}
     if page < total_pages:
-        links["next"] = {
-            "href": f"{base_url}{endpoint}?page={page+1}&limit={limit}{query_string}"
-        }
+        links["next"] = {"href": f"{base_url}{endpoint}?page={page+1}&limit={limit}{query_string}"}
 
     return links
 
@@ -93,9 +85,7 @@ async def get_users(
             {"email": {"$regex": search, "$options": "i"}},
         ]
 
-    users, total = await user_service.get_users(
-        page, limit, sort_by, sort_order.value, filters
-    )
+    users, total = await user_service.get_users(page, limit, sort_by, sort_order.value, filters)
 
     base_url = str(request.base_url).rstrip("/")
     for user in users:
@@ -111,18 +101,14 @@ async def get_users(
 
 
 @router.get("/{user_id}")
-async def get_user(
-    user_id: str, request: Request, accept_language: Optional[str] = Header("en")
-):
+async def get_user(user_id: str, request: Request, accept_language: Optional[str] = Header("en")):
     """Get user by ID with dates formatted according to language"""
     # Validate user_id format
     validate_user_id(user_id)
 
     user = await user_service.get_user_by_id(user_id)
     if not user:
-        raise ResourceNotFoundError(
-            resource="User", identifier=user_id, searched_by="id"
-        )
+        raise ResourceNotFoundError(resource="User", identifier=user_id, searched_by="id")
 
     # Extraire la langue
     lang = accept_language.split(",")[0].strip()[:2]
@@ -186,9 +172,7 @@ async def update_user(
 
     user = await user_service.update_user(user_id, user_data)
     if not user:
-        raise ResourceNotFoundError(
-            resource="User", identifier=user_id, searched_by="id"
-        )
+        raise ResourceNotFoundError(resource="User", identifier=user_id, searched_by="id")
 
     # Extraire la langue
     lang = accept_language.split(",")[0].strip()[:2]
@@ -218,7 +202,5 @@ async def delete_user(user_id: str, accept_language: Optional[str] = Header("en"
 
     success = await user_service.delete_user(user_id)
     if not success:
-        raise ResourceNotFoundError(
-            resource="User", identifier=user_id, searched_by="id"
-        )
+        raise ResourceNotFoundError(resource="User", identifier=user_id, searched_by="id")
     return DeleteResponse(id=user_id)

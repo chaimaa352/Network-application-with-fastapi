@@ -1,0 +1,28 @@
+# Bandit Configuration for Security Scanning
+
+# Test IDs to skip
+skips: []
+
+# Test IDs to run (empty means run all)
+tests: []
+
+# Directories to exclude from scanning
+exclude_dirs:
+  - /tests/
+  - /venv/
+  - /.venv/
+  - /build/
+  - /dist/
+  - /.git/
+  - /__pycache__/
+
+# Only report issues with at least this severity level
+# Options: LOW, MEDIUM, HIGH
+severity: MEDIUM
+
+# Only report issues with at least this confidence level
+# Options: LOW, MEDIUM, HIGH
+confidence: MEDIUM
+
+# Output format
+format: txt

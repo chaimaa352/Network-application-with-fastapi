@@ -1,8 +1,10 @@
-from typing import List, Tuple, Optional
 from datetime import datetime
+from typing import List, Optional, Tuple
+
 from bson import ObjectId
+
 from app.database import get_database
-from app.schemas.comment import CommentCreate, Comment
+from app.schemas.comment import Comment, CommentCreate
 from app.services.user_service import UserService
 from app.utils.errors import BodyNotValidError, ResourceNotFoundError
 
@@ -52,9 +54,7 @@ class CommentService:
         sort_direction = -1 if sort_order == "desc" else 1
         skip = (page - 1) * limit
 
-        cursor = (
-            collection.find(query).sort(sort_by, sort_direction).skip(skip).limit(limit)
-        )
+        cursor = collection.find(query).sort(sort_by, sort_direction).skip(skip).limit(limit)
 
         comments = []
         async for comment_dict in cursor:

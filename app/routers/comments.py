@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Query, Path, Request, Header
-from typing import Optional, Literal
-from app.schemas.comment import CommentCreate, Comment
-from app.schemas.common import PaginatedResponse, DeleteResponse, SortOrder
+from typing import Literal, Optional
+
+from fastapi import APIRouter, Header, Path, Query, Request
+
+from app.schemas.comment import Comment, CommentCreate
+from app.schemas.common import DeleteResponse, PaginatedResponse, SortOrder
 from app.services.comment_service import CommentService
 from app.utils.errors import ResourceNotFoundError
 
@@ -9,9 +11,7 @@ router = APIRouter()
 comment_service = CommentService()
 
 
-def add_comment_hateoas_links(
-    comment_id: str, post_id: str, owner_id: str, base_url: str
-) -> dict:
+def add_comment_hateoas_links(comment_id: str, post_id: str, owner_id: str, base_url: str) -> dict:
     """Add HATEOAS links to comment"""
     return {
         "self": {"href": f"{base_url}/api/v1/comments/{comment_id}"},
@@ -29,23 +29,15 @@ def add_pagination_links(
     query_string = f"&{query_params}" if query_params else ""
 
     links = {
-        "self": {
-            "href": f"{base_url}{endpoint}?page={page}&limit={limit}{query_string}"
-        },
+        "self": {"href": f"{base_url}{endpoint}?page={page}&limit={limit}{query_string}"},
         "first": {"href": f"{base_url}{endpoint}?page=1&limit={limit}{query_string}"},
-        "last": {
-            "href": f"{base_url}{endpoint}?page={total_pages}&limit={limit}{query_string}"
-        },
+        "last": {"href": f"{base_url}{endpoint}?page={total_pages}&limit={limit}{query_string}"},
     }
 
     if page > 1:
-        links["prev"] = {
-            "href": f"{base_url}{endpoint}?page={page-1}&limit={limit}{query_string}"
-        }
+        links["prev"] = {"href": f"{base_url}{endpoint}?page={page-1}&limit={limit}{query_string}"}
     if page < total_pages:
-        links["next"] = {
-            "href": f"{base_url}{endpoint}?page={page+1}&limit={limit}{query_string}"
-        }
+        links["next"] = {"href": f"{base_url}{endpoint}?page={page+1}&limit={limit}{query_string}"}
 
     return links
 
@@ -207,9 +199,7 @@ async def create_comment(
     comment = await comment_service.create_comment(comment_data)
 
     base_url = str(request.base_url).rstrip("/")
-    comment._links = add_comment_hateoas_links(
-        comment.id, comment.post, comment.owner.id, base_url
-    )
+    comment._links = add_comment_hateoas_links(comment.id, comment.post, comment.owner.id, base_url)
 
     return comment
 

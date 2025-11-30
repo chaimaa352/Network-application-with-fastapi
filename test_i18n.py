@@ -1,5 +1,6 @@
 from datetime import datetime
-from app.utils.i18n import setup_i18n, format_date, translate
+
+from app.utils.i18n import format_date, setup_i18n, translate
 
 # Initialiser i18n
 setup_i18n()

@@ -1,7 +1,8 @@
-from babel import Locale
-from babel.dates import format_datetime
 from datetime import datetime
 from typing import Optional
+
+from babel import Locale
+from babel.dates import format_datetime
 
 # Messages traduits
 TRANSLATIONS = {

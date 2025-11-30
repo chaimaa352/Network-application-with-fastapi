@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
-from typing import List, TypeVar, Generic, Optional
 from enum import Enum
+from typing import Generic, List, Optional, TypeVar
+
+from pydantic import BaseModel, Field
 
 T = TypeVar("T")
 
@@ -22,9 +23,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
     _links: Optional[dict] = None
 
     class Config:
-        json_schema_extra = {
-            "example": {"data": [], "total": 100, "page": 1, "limit": 20}
-        }
+        json_schema_extra = {"example": {"data": [], "total": 100, "page": 1, "limit": 20}}
 
 
 class DeleteResponse(BaseModel):

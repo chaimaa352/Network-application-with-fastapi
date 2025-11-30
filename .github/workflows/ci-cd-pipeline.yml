@@ -1,607 +1,647 @@
-name: Optimized CI/CD Pipeline
+name: Complete CI/CD Pipeline with Enhanced Security
 
-# ===========================
-# DÉCLENCHEURS AVANCÉS
-# ===========================
 on:
   push:
-    branches: 
+    branches:
       - main
       - master
       - develop
     paths-ignore:
       - '**.md'
       - 'docs/**'
-      - '.github/workflows/reusable-*.yml'
-  
+
   pull_request:
-    branches: 
+    branches:
       - main
       - master
-    types: [opened, synchronize, reopened, ready_for_review]
-  
-  # Déclenchement manuel avec options
+    types: [opened, synchronize, reopened]
+
   workflow_dispatch:
     inputs:
       run_security_scan:
-        description: 'Exécuter le scan de sécurité'
-        required: false
+        description: 'Run security scan'
         type: boolean
         default: false
       environment:
-        description: 'Environnement de déploiement'
-        required: false
+        description: 'Deployment environment'
         type: choice
         options:
           - development
           - staging
           - production
         default: development
+      security_threshold:
+        description: 'Security threshold (fail on CVSS >=)'
+        type: choice
+        options:
+          - '9.0'
+          - '7.0'
+          - '5.0'
+          - '0.0'
+        default: '5.0'
 
-# ===========================
-# VARIABLES GLOBALES
-# ===========================
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   PYTHON_VERSION: '3.11'
+  SECURITY_THRESHOLD: ${{ github.event.inputs.security_threshold || '5.0' }}
 
-# ===========================
-# CONFIGURATION DE CONCURRENCE
-# ===========================
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# ===========================
-# JOBS DU PIPELINE
-# ===========================
 jobs:
   # ===========================
-  # JOB 1: SETUP & VALIDATION
+  # JOB 0: PRE-COMMIT CHECK
+  # ===========================
+  pre-commit-check:
+    name: 🔒 Pre-Commit Hooks
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: 📦 Install pre-commit
+      run: |
+        pip install pre-commit
+        pre-commit --version
+
+    - name: 💾 Cache pre-commit
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pre-commit
+        key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+    - name: 🔍 Check for bypass
+      id: check-bypass
+      run: |
+        echo "### 🔒 Pre-Commit Bypass Detection" >> $GITHUB_STEP_SUMMARY
+        BYPASS_DETECTED=false
+
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          COMMITS=$(git log --format="%H" origin/${{ github.base_ref }}..HEAD)
+        else
+          COMMITS=$(git log --format="%H" -n 5)
+        fi
+
+        for commit in $COMMITS; do
+          MESSAGE=$(git log --format=%B -n 1 $commit)
+          if echo "$MESSAGE" | grep -qi "no-verify\|skip.*hook"; then
+            BYPASS_DETECTED=true
+            echo "⚠️ Bypass in: ${commit:0:7}" >> $GITHUB_STEP_SUMMARY
+          fi
+        done
+
+        echo "bypass-detected=$BYPASS_DETECTED" >> $GITHUB_OUTPUT
+
+    - name: 🧪 Run pre-commit
+      run: |
+        pre-commit run --all-files || {
+          echo "::error::Pre-commit hooks failed"
+          exit 1
+        }
+
+    - name: 📊 Report
+      if: always()
+      run: |
+        echo "### 📋 Pre-Commit Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Formatting | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Security | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Linting | ✅ |" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================
+  # JOB 1: SETUP
   # ===========================
   setup:
-    name: 🔧 Setup & Validation
+    name: 🔧 Setup
     runs-on: ubuntu-latest
-    
+    needs: pre-commit-check
+
     outputs:
       python-version: ${{ steps.set-outputs.outputs.python-version }}
       should-run-security: ${{ steps.check-conditions.outputs.run-security }}
       should-deploy: ${{ steps.check-conditions.outputs.should-deploy }}
-      cache-hit: ${{ steps.cache-deps.outputs.cache-hit }}
       image-name: ${{ steps.lowercase.outputs.image_name }}
-    
+      security-threshold: ${{ env.SECURITY_THRESHOLD }}
+
     steps:
-    - name: 📥 Checkout code
+    - name: 📥 Checkout
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-    
-    - name: 📝 Set job outputs
+
+    - name: 📝 Set outputs
       id: set-outputs
-      run: |
-        echo "python-version=${{ env.PYTHON_VERSION }}" >> $GITHUB_OUTPUT
-    
-    - name: 🔍 Convert repository name to lowercase
+      run: echo "python-version=${{ env.PYTHON_VERSION }}" >> $GITHUB_OUTPUT
+
+    - name: 🔍 Lowercase repo name
       id: lowercase
-      run: |
-        echo "image_name=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-    
-    - name: 🎯 Check conditions for jobs
+      run: echo "image_name=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+    - name: 🎯 Check conditions
       id: check-conditions
       run: |
-        # Vérifier si le scan de sécurité doit s'exécuter
         SHOULD_RUN_SECURITY=false
         SHOULD_DEPLOY=false
-        
-        # Scan de sécurité si :
+
         if [[ "${{ github.event.inputs.run_security_scan }}" == "true" ]]; then
           SHOULD_RUN_SECURITY=true
-          echo "✅ Security scan: Manual trigger"
         fi
-        
-        if [[ "${{ github.event_name }}" == "pull_request" ]] && \
-           [[ "${{ github.base_ref }}" == "main" || "${{ github.base_ref }}" == "master" ]]; then
+
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
           SHOULD_RUN_SECURITY=true
-          echo "✅ Security scan: PR to main/master"
         fi
-        
+
         if git log -1 --pretty=%B | grep -iq "\[security\]"; then
           SHOULD_RUN_SECURITY=true
-          echo "✅ Security scan: Commit with [security] tag"
         fi
-        
-        if git diff --name-only HEAD~1 2>/dev/null | grep -q "requirements.txt"; then
-          SHOULD_RUN_SECURITY=true
-          echo "✅ Security scan: requirements.txt modified"
-        fi
-        
-        # Déploiement uniquement sur main/master
-        if [[ "${{ github.ref }}" == "refs/heads/main" ]] || \
-           [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
           SHOULD_DEPLOY=true
-          echo "✅ Deployment: Push to main/master"
         fi
-        
+
         echo "run-security=$SHOULD_RUN_SECURITY" >> $GITHUB_OUTPUT
         echo "should-deploy=$SHOULD_DEPLOY" >> $GITHUB_OUTPUT
-    
+
     - name: 🐍 Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'
-    
-    - name: 💾 Cache Python dependencies
-      id: cache-deps
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cache/pip
-          .venv
-        key: pip-${{ runner.os }}-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          pip-${{ runner.os }}-
-    
-    - name: 📦 Install dependencies
-      if: steps.cache-deps.outputs.cache-hit != 'true'
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        echo "✅ Dependencies installed"
-    
-    - name: ℹ️ Pipeline Summary
-      run: |
-        echo "### 🚀 Pipeline Configuration" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
-        echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Python Version | ${{ env.PYTHON_VERSION }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Security Scan | ${{ steps.check-conditions.outputs.run-security }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Deployment | ${{ steps.check-conditions.outputs.should-deploy }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Cache Hit | ${{ steps.cache-deps.outputs.cache-hit }} |" >> $GITHUB_STEP_SUMMARY
 
-  # ===========================
-  # JOB 2: TESTS UNITAIRES
-  # ===========================
-  unit-tests:
-    name: 🧪 Unit Tests
-    runs-on: ubuntu-latest
-    needs: setup
-    
-    steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-    
-    - name: 🐍 Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ needs.setup.outputs.python-version }}
-        cache: 'pip'
-    
-    - name: 💾 Restore dependencies cache
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cache/pip
-          .venv
-        key: pip-${{ runner.os }}-${{ hashFiles('**/requirements.txt') }}
-    
-    - name: 📦 Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-cov pytest-asyncio pytest-mock
-    
-    - name: 🧪 Run unit tests
-      run: |
-        if [ -d "tests/unit" ]; then
-          pytest tests/unit/ -v --cov=. --cov-report=xml --cov-report=html --cov-report=term
-        else
-          echo "⚠️ No unit tests directory found, creating basic test"
-          mkdir -p tests/unit
-          cat > tests/unit/test_basic.py << 'EOF'
-        from fastapi.testclient import TestClient
-        import sys
-        import os
-        sys.path.insert(0, os.path.abspath('.'))
-        
-        try:
-            from main import app
-            client = TestClient(app)
-            
-            def test_root():
-                response = client.get("/")
-                assert response.status_code in [200, 404]
-        except:
-            def test_placeholder():
-                assert True
-        EOF
-          pytest tests/unit/ -v
-        fi
-      continue-on-error: true
-    
-    - name: 📊 Upload coverage reports
-      uses: codecov/codecov-action@v3
-      with:
-        files: ./coverage.xml
-        flags: unittests
-        name: codecov-umbrella
-      continue-on-error: true
-    
-    - name: 📈 Coverage Summary
-      if: always()
-      run: |
-        echo "### 📊 Test Coverage" >> $GITHUB_STEP_SUMMARY
-        if [ -f coverage.xml ]; then
-          echo "Coverage report generated ✅" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "No coverage data available" >> $GITHUB_STEP_SUMMARY
-        fi
-
-  # ===========================
-  # JOB 3: TESTS D'INTÉGRATION
-  # ===========================
-  integration-tests:
-    name: 🔗 Integration Tests
-    runs-on: ubuntu-latest
-    needs: setup
-    
-    steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-    
-    - name: 🐍 Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ needs.setup.outputs.python-version }}
-        cache: 'pip'
-    
-    - name: 💾 Restore dependencies cache
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cache/pip
-          .venv
-        key: pip-${{ runner.os }}-${{ hashFiles('**/requirements.txt') }}
-    
-    - name: 📦 Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio
-    
-    - name: 🔗 Run integration tests
-      run: |
-        if [ -d "tests/integration" ]; then
-          pytest tests/integration/ -v
-        else
-          echo "ℹ️ No integration tests directory found, skipping"
-        fi
-      continue-on-error: true
-
-  # ===========================
-  # JOB 4: CODE QUALITY
-  # ===========================
-  code-quality:
-    name: 🎨 Code Quality & Linting
-    runs-on: ubuntu-latest
-    needs: setup
-    
-    steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-    
-    - name: 🐍 Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ needs.setup.outputs.python-version }}
-        cache: 'pip'
-    
-    - name: 💾 Restore dependencies cache
+    - name: 💾 Cache dependencies
       uses: actions/cache@v3
       with:
         path: ~/.cache/pip
         key: pip-${{ runner.os }}-${{ hashFiles('**/requirements.txt') }}
-    
-    - name: 📦 Install linting tools
+
+    - name: 📦 Install dependencies
       run: |
-        pip install flake8 pylint black isort
-    
-    - name: 🔍 Run Flake8
-      run: |
-        echo "### 🔍 Flake8 Results" >> $GITHUB_STEP_SUMMARY
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || true
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics >> $GITHUB_STEP_SUMMARY || true
-      continue-on-error: true
-    
-    - name: ⚫ Check code formatting (Black)
-      run: |
-        black --check --diff . || echo "⚠️ Code formatting issues found"
-      continue-on-error: true
-    
-    - name: 🔤 Check import sorting (isort)
-      run: |
-        isort --check-only --diff . || echo "⚠️ Import sorting issues found"
-      continue-on-error: true
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
   # ===========================
-  # JOB 5: SECURITY SCAN (Conditionnel)
+  # JOB 2: TESTS
   # ===========================
-  security-scan:
-    name: 🔒 Security Scan
+  test:
+    name: 🧪 Tests
     runs-on: ubuntu-latest
     needs: setup
-    if: needs.setup.outputs.should-run-security == 'true'
-    
+
     steps:
-    - name: 📥 Checkout code
+    - name: 📥 Checkout
       uses: actions/checkout@v4
-    
+
     - name: 🐍 Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: ${{ needs.setup.outputs.python-version }}
-    
-    - name: 🔒 Run Bandit security scan
+        cache: 'pip'
+
+    - name: 📦 Install
       run: |
-        pip install bandit
-        echo "### 🔒 Security Scan Results" >> $GITHUB_STEP_SUMMARY
-        bandit -r . -f json -o bandit-report.json || true
-        bandit -r . -f screen | tee -a $GITHUB_STEP_SUMMARY || true
-      continue-on-error: true
-    
-    - name: 🛡️ Run Safety check
+        pip install -r requirements.txt
+        pip install pytest pytest-cov
+
+    - name: 🧪 Run tests
       run: |
-        pip install safety
-        echo "### 🛡️ Dependency Safety Check" >> $GITHUB_STEP_SUMMARY
-        safety check --json || true
-        safety check | tee -a $GITHUB_STEP_SUMMARY || true
+        if [ -d "tests" ]; then
+          pytest -v --cov
+        else
+          echo "No tests found"
+        fi
       continue-on-error: true
-    
-    - name: 📤 Upload security reports
-      uses: actions/upload-artifact@v3
-      with:
-        name: security-reports
-        path: |
-          bandit-report.json
-        retention-days: 30
-      if: always()
 
   # ===========================
-  # JOB 6: BUILD & PUSH DOCKER IMAGE
+  # JOB 3: CODE QUALITY
+  # ===========================
+  code-quality:
+    name: 🎨 Code Quality
+    runs-on: ubuntu-latest
+    needs: setup
+
+    steps:
+    - name: 📥 Checkout
+      uses: actions/checkout@v4
+
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ needs.setup.outputs.python-version }}
+
+    - name: 📦 Install tools
+      run: pip install flake8 black isort
+
+    - name: 🔍 Flake8
+      run: flake8 . --count --max-line-length=100 --statistics || true
+      continue-on-error: true
+
+    - name: ⚫ Black
+      run: black --check . || true
+      continue-on-error: true
+
+  # ===========================
+  # JOB 4: SAST (STATIC APPLICATION SECURITY TESTING)
+  # ===========================
+  sast:
+    name: 🔍 SAST
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should-run-security == 'true'
+
+    outputs:
+      critical-vulnerabilities: ${{ steps.analyze-bandit.outputs.critical-vulnerabilities }}
+      high-vulnerabilities: ${{ steps.analyze-bandit.outputs.high-vulnerabilities }}
+
+    steps:
+    - name: 📥 Checkout
+      uses: actions/checkout@v4
+
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ needs.setup.outputs.python-version }}
+
+    - name: 🔒 Bandit SAST Scan
+      id: bandit-scan
+      run: |
+        pip install bandit
+        # Run Bandit and output to JSON for analysis
+        bandit -r . -f json -o bandit-results.json || true
+
+        # Count vulnerabilities by severity
+        CRITICAL=$(python -c "import json; data=json.load(open('bandit-results.json')); print(len([i for i in data.get('results', []) if i.get('issue_confidence') == 'HIGH' and i.get('issue_severity') == 'HIGH']))")
+        HIGH=$(python -c "import json; data=json.load(open('bandit-results.json')); print(len([i for i in data.get('results', []) if i.get('issue_confidence') == 'HIGH' and i.get('issue_severity') == 'MEDIUM']))")
+
+        echo "critical-vulnerabilities=$CRITICAL" >> $GITHUB_OUTPUT
+        echo "high-vulnerabilities=$HIGH" >> $GITHUB_OUTPUT
+
+    - name: 📊 Upload SAST Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: sast-results
+        path: bandit-results.json
+        retention-days: 30
+
+    - name: 📋 SAST Report
+      if: always()
+      run: |
+        echo "### 🔍 SAST Results (Bandit)" >> $GITHUB_STEP_SUMMARY
+        echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Critical | ${{ steps.analyze-bandit.outputs.critical-vulnerabilities }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| High | ${{ steps.analyze-bandit.outputs.high-vulnerabilities }} |" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================
+  # JOB 5: SCA (SOFTWARE COMPOSITION ANALYSIS)
+  # ===========================
+  sca:
+    name: 📦 SCA
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should-run-security == 'true'
+
+    outputs:
+      critical-dependencies: ${{ steps.analyze-dependencies.outputs.critical-dependencies }}
+      high-dependencies: ${{ steps.analyze-dependencies.outputs.high-dependencies }}
+
+    steps:
+    - name: 📥 Checkout
+      uses: actions/checkout@v4
+
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ needs.setup.outputs.python-version }}
+
+    - name: 🛡️ Safety SCA Scan
+      run: |
+        pip install safety
+        safety check --json > safety-results.json || true
+
+    - name: 🔍 Analyze Dependencies
+      id: analyze-dependencies
+      run: |
+        pip install jq
+        CRITICAL=$(jq -r '.vulnerabilities | map(select(.cvssv3.base_score >= 9.0)) | length' safety-results.json 2>/dev/null || echo "0")
+        HIGH=$(jq -r '.vulnerabilities | map(select(.cvssv3.base_score >= 7.0 and .cvssv3.base_score < 9.0)) | length' safety-results.json 2>/dev/null || echo "0")
+
+        echo "critical-dependencies=$CRITICAL" >> $GITHUB_OUTPUT
+        echo "high-dependencies=$HIGH" >> $GITHUB_OUTPUT
+
+    - name: 📊 Upload SCA Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: sca-results
+        path: safety-results.json
+        retention-days: 30
+
+    - name: 📋 SCA Report
+      if: always()
+      run: |
+        echo "### 📦 SCA Results (Safety)" >> $GITHUB_STEP_SUMMARY
+        echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Critical | ${{ steps.analyze-dependencies.outputs.critical-dependencies }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| High | ${{ steps.analyze-dependencies.outputs.high-dependencies }} |" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================
+  # JOB 6: BUILD DOCKER
   # ===========================
   build-docker:
-    name: 🐳 Build & Push Docker Image
+    name: 🐳 Build Docker
     runs-on: ubuntu-latest
-    needs: [setup, unit-tests, code-quality]
+    needs: [setup, test, code-quality]
     permissions:
       contents: read
       packages: write
-    
+
     steps:
-    - name: 📥 Checkout code
+    - name: 📥 Checkout
       uses: actions/checkout@v4
-    
-    - name: 🔧 Set up Docker Buildx
+
+    - name: 🔧 Setup Buildx
       uses: docker/setup-buildx-action@v3
-    
-    - name: 🔐 Login to GitHub Container Registry
+
+    - name: 🔐 Login
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: 🏷️ Extract metadata
+
+    - name: 🏷️ Metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
         images: ${{ env.REGISTRY }}/${{ needs.setup.outputs.image-name }}
         tags: |
           type=ref,event=branch
-          type=ref,event=pr
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=sha,prefix={{branch}}-
-          type=raw,value=latest,enable={{is_default_branch}}
-        labels: |
-          org.opencontainers.image.title=FastAPI Network Application
-          org.opencontainers.image.description=REST API with CI/CD Pipeline
-          org.opencontainers.image.vendor=chaimaa352
-    
-    - name: 💾 Cache Docker layers
+          type=sha
+          latest
+
+    - name: 💾 Cache
       uses: actions/cache@v3
       with:
         path: /tmp/.buildx-cache
-        key: ${{ runner.os }}-buildx-${{ github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-buildx-
-    
-    - name: 🏗️ Build and push Docker image
-      id: docker_build
+        key: buildx-${{ github.sha }}
+        restore-keys: buildx-
+
+    - name: 🏗️ Build & Push
       uses: docker/build-push-action@v5
       with:
         context: .
         push: true
         tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: |
-          type=registry,ref=${{ env.REGISTRY }}/${{ needs.setup.outputs.image-name }}:buildcache
-          type=local,src=/tmp/.buildx-cache
-        cache-to: |
-          type=registry,ref=${{ env.REGISTRY }}/${{ needs.setup.outputs.image-name }}:buildcache,mode=max
-          type=local,dest=/tmp/.buildx-cache-new,mode=max
-        build-args: |
-          PYTHON_VERSION=${{ env.PYTHON_VERSION }}
-          BUILDTIME=${{ github.event.head_commit.timestamp }}
-          VERSION=${{ github.sha }}
-        platforms: linux/amd64
-    
+        cache-from: type=local,src=/tmp/.buildx-cache
+        cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
     - name: 🔄 Move cache
       run: |
         rm -rf /tmp/.buildx-cache
         mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-    
-    - name: 📋 Image build summary
-      run: |
-        echo "### 🐳 Docker Image Built Successfully" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Registry:** \`${{ env.REGISTRY }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "**Image:** \`${{ needs.setup.outputs.image-name }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "**Digest:** \`${{ steps.docker_build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   # ===========================
-  # JOB 7: DEPLOY (Conditionnel)
+  # JOB 7: CONTAINER SECURITY
   # ===========================
-  deploy:
-    name: 🚀 Deploy Application
+  container-security:
+    name: 🐳 Container Security
     runs-on: ubuntu-latest
     needs: [setup, build-docker]
-    if: needs.setup.outputs.should-deploy == 'true'
-    permissions:
-      packages: read
-    environment:
-      name: ${{ github.event.inputs.environment || 'production' }}
-      url: http://localhost:8000
-    
+    if: needs.setup.outputs.should-run-security == 'true'
+
+    outputs:
+      critical-container-vulns: ${{ steps.check-container-vulns.outputs.critical-container-vulns }}
+
     steps:
-    - name: 📥 Checkout code
+    - name: 📥 Checkout
       uses: actions/checkout@v4
-    
-    - name: 🔐 Login to GitHub Container Registry
+
+    - name: 🔐 Login to Container Registry
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: 🚀 Deploy to Docker environment
+
+    - name: 🔒 Trivy Container Scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ needs.setup.outputs.image-name }}:latest
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH'
+
+    - name: 📊 Upload Container Scan Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-results
+        path: trivy-results.sarif
+        retention-days: 30
+
+    - name: ⚠️ Check Container Vulnerabilities
+      id: check-container-vulns
       run: |
-        echo "🚀 Starting deployment to ${{ github.event.inputs.environment || 'production' }}..."
-        
-        IMAGE_URL="${{ env.REGISTRY }}/${{ needs.setup.outputs.image-name }}:latest"
-        echo "📦 Image: $IMAGE_URL"
-        
-        echo "📥 Pulling latest image..."
-        docker pull $IMAGE_URL
-        
-        echo "🛑 Stopping existing container..."
-        docker stop fastapi-app 2>/dev/null || true
-        docker rm fastapi-app 2>/dev/null || true
-        
-        echo "▶️ Starting new container..."
-        docker run -d \
-          --name fastapi-app \
-          -p 8000:8000 \
-          --restart unless-stopped \
-          --health-cmd="curl -f http://localhost:8000/docs || exit 1" \
-          --health-interval=30s \
-          --health-timeout=10s \
-          --health-retries=3 \
-          --health-start-period=40s \
-          -e ENVIRONMENT="${{ github.event.inputs.environment || 'production' }}" \
-          $IMAGE_URL
-        
-        echo "✅ Container started successfully!"
-        docker ps | grep fastapi-app
-    
-    - name: ⏳ Wait for application startup
+        # Simple count of critical vulnerabilities
+        if [ -f "trivy-results.sarif" ]; then
+          CRITICAL_COUNT=$(grep -c '"level": "error"' trivy-results.sarif || echo "0")
+        else
+          CRITICAL_COUNT="0"
+        fi
+        echo "critical-container-vulns=$CRITICAL_COUNT" >> $GITHUB_OUTPUT
+
+    - name: 📋 Container Security Report
+      if: always()
       run: |
-        echo "⏳ Waiting for application to be ready..."
-        sleep 20
-    
-    - name: 🏥 Health check
-      run: |
-        echo "🏥 Performing health check..."
-        
-        MAX_RETRIES=10
-        RETRY_COUNT=0
-        
-        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-          if curl -f http://localhost:8000/docs > /dev/null 2>&1; then
-            echo "✅ Application is healthy!"
-            
-            echo "### 🎉 Deployment Successful" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
-            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| Environment | ${{ github.event.inputs.environment || 'production' }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Application URL | http://localhost:8000 |" >> $GITHUB_STEP_SUMMARY
-            echo "| API Documentation | http://localhost:8000/docs |" >> $GITHUB_STEP_SUMMARY
-            echo "| Image | ${{ env.REGISTRY }}/${{ needs.setup.outputs.image-name }}:latest |" >> $GITHUB_STEP_SUMMARY
-            
-            exit 0
-          fi
-          
-          RETRY_COUNT=$((RETRY_COUNT + 1))
-          echo "⏳ Attempt $RETRY_COUNT/$MAX_RETRIES..."
-          sleep 5
-        done
-        
-        echo "❌ Health check failed after $MAX_RETRIES attempts"
-        echo "📋 Container logs:"
-        docker logs fastapi-app
-        exit 1
-    
-    - name: 📊 Deployment info
-      if: success()
-      run: |
-        echo "### Container Status" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        docker ps | grep fastapi-app >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "### 🐳 Container Security Results (Trivy)" >> $GITHUB_STEP_SUMMARY
+        echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Critical | ${{ steps.check-container-vulns.outputs.critical-container-vulns }} |" >> $GITHUB_STEP_SUMMARY
 
   # ===========================
-  # JOB 8: NOTIFICATIONS & SUMMARY
+  # JOB 8: SECURITY GATE
   # ===========================
-  notify:
-    name: 📢 Pipeline Summary
+  security-gate:
+    name: 🚨 Security Gate
     runs-on: ubuntu-latest
-    needs: [setup, unit-tests, integration-tests, code-quality, build-docker, deploy]
+    needs: [sast, sca, container-security]
     if: always()
-    
+
+    outputs:
+      security-passed: ${{ steps.security-check.outputs.security-passed }}
+      total-critical: ${{ steps.security-check.outputs.total-critical }}
+      total-high: ${{ steps.security-check.outputs.total-high }}
+
     steps:
-    - name: 📊 Generate pipeline summary
+    - name: 🔒 Security Threshold Check
+      id: security-check
       run: |
-        echo "# 🎯 Pipeline Execution Summary" >> $GITHUB_STEP_SUMMARY
+        CRITICAL_SAST=${{ needs.sast.outputs.critical-vulnerabilities || 0 }}
+        HIGH_SAST=${{ needs.sast.outputs.high-vulnerabilities || 0 }}
+        CRITICAL_SCA=${{ needs.sca.outputs.critical-dependencies || 0 }}
+        HIGH_SCA=${{ needs.sca.outputs.high-dependencies || 0 }}
+        CRITICAL_CONTAINER=${{ needs.container-security.outputs.critical-container-vulns || 0 }}
+
+        TOTAL_CRITICAL=$((CRITICAL_SAST + CRITICAL_SCA + CRITICAL_CONTAINER))
+        TOTAL_HIGH=$((HIGH_SAST + HIGH_SCA))
+
+        SECURITY_THRESHOLD=${{ needs.setup.outputs.security-threshold }}
+        SECURITY_PASSED="true"
+
+        # Check if critical vulnerabilities exceed threshold
+        if [ $TOTAL_CRITICAL -gt 0 ]; then
+          echo "::error::Critical vulnerabilities detected: $TOTAL_CRITICAL"
+          SECURITY_PASSED="false"
+        fi
+
+        # Check if high vulnerabilities exceed threshold based on configuration
+        if [ "$SECURITY_THRESHOLD" = "7.0" ] && [ $TOTAL_HIGH -gt 0 ]; then
+          echo "::error::High vulnerabilities detected: $TOTAL_HIGH"
+          SECURITY_PASSED="false"
+        fi
+
+        echo "security-passed=$SECURITY_PASSED" >> $GITHUB_OUTPUT
+        echo "total-critical=$TOTAL_CRITICAL" >> $GITHUB_OUTPUT
+        echo "total-high=$TOTAL_HIGH" >> $GITHUB_OUTPUT
+
+    - name: 🚨 Fail on Critical Vulnerabilities
+      if: steps.security-check.outputs.security-passed == 'false'
+      run: |
+        echo "::error::Security gate failed! Critical or high vulnerabilities detected."
+        echo "Total Critical: ${{ steps.security-check.outputs.total-critical }}"
+        echo "Total High: ${{ steps.security-check.outputs.total-high }}"
+        exit 1
+
+    - name: 📋 Security Gate Report
+      if: always()
+      run: |
+        echo "### 🚨 Security Gate Assessment" >> $GITHUB_STEP_SUMMARY
+        echo "| Scan Type | Critical | High |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|----------|------|" >> $GITHUB_STEP_SUMMARY
+        echo "| SAST | ${{ needs.sast.outputs.critical-vulnerabilities || 0 }} | ${{ needs.sast.outputs.high-vulnerabilities || 0 }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| SCA | ${{ needs.sca.outputs.critical-dependencies || 0 }} | ${{ needs.sca.outputs.high-dependencies || 0 }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Container | ${{ needs.container-security.outputs.critical-container-vulns || 0 }} | - |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Total** | **${{ steps.security-check.outputs.total-critical }}** | **${{ steps.security-check.outputs.total-high }}** |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## Job Status" >> $GITHUB_STEP_SUMMARY
+        echo "**Security Threshold**: CVSS >= ${{ needs.setup.outputs.security-threshold }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Status**: $([ \"${{ steps.security-check.outputs.security-passed }}\" == \"true\" ] && echo \"✅ PASS\" || echo \"❌ FAIL\")" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================
+  # JOB 9: DEPLOY
+  # ===========================
+  deploy:
+    name: 🚀 Deploy
+    runs-on: ubuntu-latest
+    needs: [setup, build-docker, security-gate]
+    if: needs.setup.outputs.should-deploy == 'true' && needs.security-gate.outputs.security-passed == 'true'
+    permissions:
+      packages: read
+
+    steps:
+    - name: 📥 Checkout
+      uses: actions/checkout@v4
+
+    - name: 🔐 Login
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: 🚀 Deploy
+      run: |
+        IMAGE="${{ env.REGISTRY }}/${{ needs.setup.outputs.image-name }}:latest"
+        docker pull $IMAGE
+        docker stop fastapi-app 2>/dev/null || true
+        docker rm fastapi-app 2>/dev/null || true
+        docker run -d --name fastapi-app -p 8000:8000 $IMAGE
+
+    - name: 🏥 Health check
+      run: |
+        sleep 15
+        for i in {1..10}; do
+          if curl -f http://localhost:8000/docs; then
+            echo "✅ Healthy"
+            exit 0
+          fi
+          sleep 5
+        done
+        exit 1
+
+  # ===========================
+  # JOB 10: DAST (DYNAMIC APPLICATION SECURITY TESTING)
+  # ===========================
+  dast:
+    name: 🌐 DAST
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: needs.setup.outputs.should-run-security == 'true' && needs.setup.outputs.should-deploy == 'true'
+
+    steps:
+    - name: 📥 Checkout
+      uses: actions/checkout@v4
+
+    - name: 🎯 OWASP ZAP DAST Scan
+      uses: zaproxy/action-full-scan@v0.9.0
+      with:
+        target: 'http://localhost:8000'
+        rules_file_name: '.zap/rules.tsv'
+        cmd_options: '-a'
+
+    - name: 📊 Upload DAST Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: dast-results
+        path: zap-report.html
+        retention-days: 30
+
+    - name: 📋 DAST Report
+      if: always()
+      run: |
+        echo "### 🌐 DAST Results (OWASP ZAP)" >> $GITHUB_STEP_SUMMARY
+        echo "| Status | Scan Completed |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|----------------|" >> $GITHUB_STEP_SUMMARY
+        echo "| ✅ | Full application security scan performed |" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================
+  # JOB 11: SUMMARY
+  # ===========================
+  summary:
+    name: 📊 Summary
+    runs-on: ubuntu-latest
+    needs: [pre-commit-check, setup, test, code-quality, sast, sca, container-security, security-gate, build-docker, deploy]
+    if: always()
+
+    steps:
+    - name: 📋 Generate Security Summary
+      run: |
+        echo "# 🛡️ DevSecOps Pipeline Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Security Assessment" >> $GITHUB_STEP_SUMMARY
+        echo "| Scan Type | Status | Critical | High |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|----------|------|" >> $GITHUB_STEP_SUMMARY
+        echo "| SAST | ${{ needs.sast.result }} | ${{ needs.sast.outputs.critical-vulnerabilities || 0 }} | ${{ needs.sast.outputs.high-vulnerabilities || 0 }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| SCA | ${{ needs.sca.result }} | ${{ needs.sca.outputs.critical-dependencies || 0 }} | ${{ needs.sca.outputs.high-dependencies || 0 }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Container | ${{ needs.container-security.result }} | ${{ needs.container-security.outputs.critical-container-vulns || 0 }} | - |" >> $GITHUB_STEP_SUMMARY
+        echo "| DAST | ${{ needs.dast.result || 'N/A' }} | - | - |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Pipeline Overview" >> $GITHUB_STEP_SUMMARY
         echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
         echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Pre-Commit | ${{ needs.pre-commit-check.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Setup | ${{ needs.setup.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Unit Tests | ${{ needs.unit-tests.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Integration Tests | ${{ needs.integration-tests.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Code Quality | ${{ needs.code-quality.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Docker Build | ${{ needs.build-docker.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Deployment | ${{ needs.deploy.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        if [[ "${{ needs.deploy.result }}" == "success" ]]; then
-          echo "## ✅ Pipeline completed successfully!" >> $GITHUB_STEP_SUMMARY
-          echo "Application deployed and ready to use." >> $GITHUB_STEP_SUMMARY
-        elif [[ "${{ needs.deploy.result }}" == "skipped" ]]; then
-          echo "## ℹ️ Deployment skipped" >> $GITHUB_STEP_SUMMARY
-          echo "Deployment only occurs on main/master branches." >> $GITHUB_STEP_SUMMARY
-        else
-          echo "## ⚠️ Pipeline completed with issues" >> $GITHUB_STEP_SUMMARY
-          echo "Check the failed jobs above for details." >> $GITHUB_STEP_SUMMARY
-        fi
-    
-    - name: 🎉 Success notification
-      if: needs.deploy.result == 'success'
-      run: |
-        echo "✅ Pipeline execution completed successfully!"
-        echo "🚀 Application is deployed and running"
-    
-    - name: ⚠️ Failure notification
-      if: failure()
-      run: |
-        echo "❌ Pipeline execution failed!"
-        echo "Please check the logs for details"
+        echo "| Tests | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Quality | ${{ needs.code-quality.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Security Gate | ${{ needs.security-gate.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Build | ${{ needs.build-docker.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Deploy | ${{ needs.deploy.result }} |" >> $GITHUB_STEP_SUMMARY

@@ -1,11 +1,13 @@
 """
 Database configuration with fallback for CI/CD environment
 """
+
 import os
 
 # Configuration conditionnelle pour MongoDB
 try:
     from motor.motor_asyncio import AsyncIOMotorClient
+
     HAS_MONGO = True
 except ImportError:
     HAS_MONGO = False
@@ -24,21 +26,24 @@ else:
     client = None
     db = None
 
+
 async def connect_to_mongo():
     """Connect to MongoDB if available"""
     if HAS_MONGO:
         print("✅ Connecting to MongoDB...")
         # Test connection
-        await client.admin.command('ping')
+        await client.admin.command("ping")
         print("✅ MongoDB connected successfully")
     else:
         print("⚠️ MongoDB not available - running in test mode")
+
 
 async def close_mongo_connection():
     """Close MongoDB connection if available"""
     if HAS_MONGO and client:
         client.close()
         print("✅ MongoDB connection closed")
+
 
 def get_database():
     """Get database instance"""
