@@ -475,25 +475,27 @@ jobs:
   dast:
     name: 🌐 DAST
     runs-on: ubuntu-latest
-    needs: [deploy]
-    if: needs.setup.outputs.should-run-security == 'true' && needs.setup.outputs.should-deploy == 'true'
+    needs: [build-docker]
+    if: needs.setup.outputs.should-run-security == 'true'
 
     steps:
     - name: 📥 Checkout
       uses: actions/checkout@v4
 
-    - name: 🔧 Setup OWASP ZAP
+    - name: 🐳 Run and Test Application
       run: |
-        echo "Setting up OWASP ZAP for DAST scanning..."
-        # ZAP is automatically set up by the action
+        # Construire et lancer l'application directement
+        docker build -t fastapi-app .
+        docker run -d --name fastapi-app -p 8000:8000 fastapi-app
+        sleep 20
+        curl -f http://localhost:8000/docs || exit 1
 
-    - name: 🎯 OWASP ZAP DAST Scan
-      uses: zaproxy/action-full-scan@v0.9.0
+    - name: 🎯 OWASP ZAP Quick Scan
+      uses: zaproxy/action-baseline@v0.10.0
       with:
         target: 'http://localhost:8000'
         rules_file_name: '.zap/rules.tsv'
         cmd_options: '-a'
-        fail_action: false
 
     - name: 📊 Upload DAST Results
       uses: actions/upload-artifact@v4
@@ -501,27 +503,7 @@ jobs:
         name: dast-results
         path: |
           zap-report.html
-          zap-results.json
         retention-days: 30
-
-    - name: 📋 DAST Report
-      if: always()
-      run: |
-        echo "### 🌐 DAST Results (OWASP ZAP)" >> $GITHUB_STEP_SUMMARY
-        if [ -f "zap-report.html" ]; then
-          echo "| Status | Scan Completed |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|----------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ | Full application security scan performed |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Scan Coverage:**" >> $GITHUB_STEP_SUMMARY
-          echo "- OWASP Top 10 vulnerabilities" >> $GITHUB_STEP_SUMMARY
-          echo "- SQL Injection testing" >> $GITHUB_STEP_SUMMARY
-          echo "- Cross-Site Scripting (XSS)" >> $GITHUB_STEP_SUMMARY
-          echo "- Security misconfigurations" >> $GITHUB_STEP_SUMMARY
-          echo "- Authentication bypass attempts" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "No DAST results generated" >> $GITHUB_STEP_SUMMARY
-        fi
 
   # ===========================
   # JOB 11: SUMMARY
